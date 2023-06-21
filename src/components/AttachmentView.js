@@ -21,6 +21,9 @@ const propTypes = {
     /** Whether source url requires authentication */
     isAuthTokenRequired: PropTypes.bool,
 
+    /** Whether this attachment is the active page in carousel */
+    isPageActive: PropTypes.bool,
+
     /** URL to full-sized attachment or SVG function */
     source: PropTypes.oneOfType([PropTypes.string, PropTypes.func]).isRequired,
 
@@ -53,6 +56,7 @@ const propTypes = {
 
 const defaultProps = {
     isAuthTokenRequired: false,
+    isPageActive: false,
     file: {
         name: '',
     },
@@ -88,6 +92,7 @@ function AttachmentView(props) {
                 onPress={props.onPress}
                 sourceURL={sourceURL}
                 style={styles.imageModalPDF}
+                isPageActive={props.isPageActive}
                 onToggleKeyboard={props.onToggleKeyboard}
                 onScaleChanged={props.onScaleChanged}
                 onLoadComplete={() => !loadComplete && setLoadComplete(true)}

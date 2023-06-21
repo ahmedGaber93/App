@@ -1,5 +1,5 @@
 import React from 'react';
-import {View, FlatList, PixelRatio} from 'react-native';
+import {View, FlatList, PixelRatio, Keyboard} from 'react-native';
 import PropTypes from 'prop-types';
 import {withOnyx} from 'react-native-onyx';
 import _ from 'underscore';
@@ -52,8 +52,8 @@ class AttachmentCarousel extends React.Component {
         this.canUseTouchScreen = DeviceCapabilities.canUseTouchScreen();
         this.viewabilityConfig = {
             // To facilitate paging through the attachments, we want to consider an item "viewable" when it is
-            // more than 90% visible. When that happens we update the page index in the state.
-            itemVisiblePercentThreshold: 95,
+            // more than 75% visible. When that happens we update the page index in the state.
+            itemVisiblePercentThreshold: 75,
         };
 
         this.cycleThroughAttachments = this.cycleThroughAttachments.bind(this);
@@ -267,6 +267,7 @@ class AttachmentCarousel extends React.Component {
             <AttachmentView
                 source={item.source}
                 file={item.file}
+                isPageActive={this.state.attachments[this.state.page].source === item.source}
                 isAuthTokenRequired={item.isAuthTokenRequired}
                 onScaleChanged={this.canUseTouchScreen ? this.updateZoomState : undefined}
                 onPress={this.canUseTouchScreen ? this.toggleArrowsVisibility : undefined}
@@ -304,6 +305,7 @@ class AttachmentCarousel extends React.Component {
                                         onPress={() => {
                                             this.cycleThroughAttachments(-1);
                                             this.autoHideArrow();
+                                            Keyboard.dismiss();
                                         }}
                                         onPressIn={this.cancelAutoHideArrow}
                                         onPressOut={this.autoHideArrow}
@@ -323,6 +325,7 @@ class AttachmentCarousel extends React.Component {
                                         onPress={() => {
                                             this.cycleThroughAttachments(1);
                                             this.autoHideArrow();
+                                            Keyboard.dismiss();
                                         }}
                                         onPressIn={this.cancelAutoHideArrow}
                                         onPressOut={this.autoHideArrow}
@@ -361,6 +364,8 @@ class AttachmentCarousel extends React.Component {
                         keyExtractor={(item) => item.source}
                         viewabilityConfig={this.viewabilityConfig}
                         onViewableItemsChanged={this.updatePage}
+                        keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode="on-drag"
                     />
                 )}
 

@@ -54,6 +54,13 @@ class PDFPasswordForm extends Component {
         this.validateAndNotifyPasswordBlur = this.validateAndNotifyPasswordBlur.bind(this);
     }
 
+    // eslint-disable-next-line rulesdir/prefer-early-return
+    componentDidUpdate(prevProps) {
+        if (!prevProps.isPageActive && this.props.isPageActive && this.textInputRef) {
+            this.textInputRef.focus();
+        }
+    }
+
     submitPassword() {
         if (!this.validate()) {
             return;
@@ -103,6 +110,7 @@ class PDFPasswordForm extends Component {
                             <Text>{this.props.translate('attachmentView.pdfPasswordForm.formLabel')}</Text>
                         </View>
                         <TextInput
+                            ref={(el) => (this.textInputRef = el)}
                             label={this.props.translate('common.password')}
                             autoComplete="off"
                             autoCorrect={false}
