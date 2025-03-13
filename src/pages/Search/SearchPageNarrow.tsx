@@ -1,7 +1,7 @@
 import React, {useCallback, useState} from 'react';
 import {View} from 'react-native';
 import {useOnyx} from 'react-native-onyx';
-import Animated, {clamp, runOnJS, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
+import Animated, {clamp, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withTiming} from 'react-native-reanimated';
 import FullPageNotFoundView from '@components/BlockingViews/FullPageNotFoundView';
 import HeaderWithBackButton from '@components/HeaderWithBackButton';
 import BottomTabBar from '@components/Navigation/BottomTabBar';
@@ -16,7 +16,6 @@ import type {SearchQueryJSON} from '@components/Search/types';
 import useHandleBackButton from '@hooks/useHandleBackButton';
 import useLocalize from '@hooks/useLocalize';
 import useResponsiveLayout from '@hooks/useResponsiveLayout';
-import useScrollEventEmitter from '@hooks/useScrollEventEmitter';
 import useStyleUtils from '@hooks/useStyleUtils';
 import useThemeStyles from '@hooks/useThemeStyles';
 import useWindowDimensions from '@hooks/useWindowDimensions';
@@ -47,10 +46,6 @@ function SearchPageNarrow({queryJSON, policyID, searchName}: SearchPageNarrowPro
     const {clearSelectedTransactions} = useSearchContext();
     const [searchRouterListVisible, setSearchRouterListVisible] = useState(false);
 
-    // Controls the visibility of the educational tooltip based on user scrolling.
-    // Hides the tooltip when the user is scrolling and displays it once scrolling stops.
-    const triggerScrollEvent = useScrollEventEmitter();
-
     const handleBackButtonPress = useCallback(() => {
         if (!selectionMode?.isEnabled) {
             return false;
@@ -69,7 +64,6 @@ function SearchPageNarrow({queryJSON, policyID, searchName}: SearchPageNarrowPro
 
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (event) => {
-            runOnJS(triggerScrollEvent)();
             const {contentOffset, layoutMeasurement, contentSize} = event;
             if (windowHeight > contentSize.height) {
                 return;

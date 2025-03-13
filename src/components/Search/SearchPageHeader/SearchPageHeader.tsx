@@ -358,7 +358,6 @@ function SearchPageHeader({queryJSON, searchName, searchRouterListVisible, hideS
                 wrapperStyle={styles.productTrainingTooltipWrapper}
                 renderTooltipContent={renderProductTrainingTooltip}
                 onTooltipPress={onFiltersButtonPress}
-                shouldHideOnScroll
             >
                 <Button
                     innerStyles={[styles.searchAutocompleteInputResults, styles.borderNone, styles.bgTransparent]}
