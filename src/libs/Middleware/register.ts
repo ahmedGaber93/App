@@ -1,6 +1,7 @@
 import {addMiddleware} from '@libs/Request';
 
 import {
+    DiscardStaleSearchSnapshot,
     FailureTracking,
     FraudMonitoring,
     GlobalReimbursementPayError,
@@ -77,6 +78,9 @@ function registerMiddlewares() {
     // HandleMovedScanFailedExpenses - Retires the optimistic report built for scan-failed expenses moved on payment once the backend answers
     // with the report it created for them. Must run before SaveResponseInOnyx so its updates are applied with the response.
     addMiddleware(HandleMovedScanFailedExpenses);
+
+    // DiscardStaleSearchSnapshot - Drops the snapshot of a Search response built before an inline edit, so the edited cell keeps its new value. Must run before SaveResponseInOnyx.
+    addMiddleware(DiscardStaleSearchSnapshot);
 
     // Reconcile bulk-edit actions before successData can reinsert an action Auth skipped.
     addMiddleware(ReconcileBulkEditReportAction);

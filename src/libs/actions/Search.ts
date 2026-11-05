@@ -35,6 +35,7 @@ import getTransactionFromTransactionListItem from '@libs/getTransactionFromTrans
 import HttpUtils from '@libs/HttpUtils';
 import isTransactionGroupListItemType from '@libs/isTransactionGroupListItemType';
 import Log from '@libs/Log';
+import {markSearchSnapshotStale, releaseSearchSnapshot} from '@libs/Middleware/DiscardStaleSearchSnapshot';
 import isSearchTopmostFullScreenRoute from '@libs/Navigation/helpers/isSearchTopmostFullScreenRoute';
 import Navigation, {navigationRef} from '@libs/Navigation/Navigation';
 import type {SearchFullscreenNavigatorParamList} from '@libs/Navigation/types';
@@ -1245,6 +1246,11 @@ type InFlightSearchRequest = {
     pendingShouldSaveRecentSearch?: boolean;
     pendingUpgradeRequest?: () => Promise<string | number | undefined> | undefined;
     didSucceed?: boolean;
+    jsonQuery: string;
+    /** False while it waits for writes. */
+    isSent: boolean;
+    /** Whether an inline edit made its response stale, so its snapshot was dropped and it must be fetched again. */
+    wasSnapshotDropped?: boolean;
 };
 
 // Tracks in-flight search requests by hash+offset to prevent duplicate API calls when both page-level
@@ -1252,6 +1258,22 @@ type InFlightSearchRequest = {
 // save-recent-search intent is not equivalent to an in-flight request without it, so preserve one such
 // request to run immediately afterward.
 const inFlightSearchRequests = new Map<string, InFlightSearchRequest>();
+
+/**
+ * Marks the Search requests in flight as stale. Their responses were built before the inline edit, so applying them would
+ * flip the edited cell back. Their snapshot is dropped instead, and they are fetched again once the edit is saved.
+ *
+ * Call it right before the edit's `API.write`, with no await in between, so no Search request can be sent in the gap.
+ * Requests still waiting for writes are skipped: they are sent after the edit's write, so they include the edit.
+ */
+function markInFlightSearchRequestsStale() {
+    for (const {jsonQuery, isSent} of inFlightSearchRequests.values()) {
+        if (!isSent) {
+            continue;
+        }
+        markSearchSnapshotStale(jsonQuery);
+    }
+}
 
 // Search mounts only after the page's request has finished, so the map above no longer holds it.
 // One slot, not a set: a new query replaces the old token, so a token left behind by an abandoned query cannot skip a later refresh of it.
@@ -1404,7 +1426,9 @@ function search({
                     prevReportsLength,
                     isLoading: false,
                     shouldUpdateLastSearchParams,
-                    skipWaitForWrites,
+                    // If this runs in place of refetchStaleSnapshot, it must wait for the edit's write, or it gets the old values
+                    // again. The flag is read when this runs, so it sees the value the response set.
+                    skipWaitForWrites: skipWaitForWrites && !inFlightRequest.wasSnapshotDropped,
                     shouldSaveRecentSearch: inFlightRequest.pendingShouldSaveRecentSearch,
                     // A re-fire that only adds the save flag returns the same results the finished request just showed,
                     // so it must not show loading again (the footer would flash its skeleton over the totals).
@@ -1414,8 +1438,29 @@ function search({
         }
         return needsBreakdownRefire ? inFlightRequest.promise : undefined;
     }
-    const inFlightRequestState: InFlightSearchRequest = {shouldCalculateTotals, shouldSaveRecentSearch, footerTotal, shouldReturnTripRooms: isTripRoomsSearch};
-    inFlightSearchRequests.set(dedupeKey, inFlightRequestState);
+    // Fetches this request again after an inline edit made its snapshot stale. It waits for the edit's write, so the server
+    // returns the edited values, and shows no loading state, so the rows on screen stay visible.
+    const refetchStaleSnapshot = () =>
+        waitForWrites(READ_COMMANDS.SEARCH).then(() => {
+            // The write queue also goes idle when the app goes offline. Sending then would fail and cover the rows with an
+            // error, so skip it. The rows keep the edit's optimistic values until the next refetch.
+            if (getIsOffline()) {
+                return undefined;
+            }
+            return search({
+                queryJSON,
+                searchKey,
+                offset,
+                shouldCalculateTotals,
+                prevReportsLength,
+                isLoading: false,
+                shouldUpdateLastSearchParams,
+                skipWaitForWrites: true,
+                shouldSaveRecentSearch,
+                shouldShowLoading: false,
+                shouldReturnTripRooms,
+            });
+        });
 
     const onyxLoadingData = getOnyxLoadingData(queryJSON.hash, queryJSON, offset, true, shouldCalculateTotals, shouldShowLoading);
     const {backendQueryJSON, limit} = getBackendQueryJSON(queryJSON);
@@ -1431,6 +1476,8 @@ function search({
         ...(isTripRoomsSearch && {shouldReturnTripRooms: true}),
     };
     const jsonQuery = serializeQueryJSONForBackend(query);
+    const inFlightRequestState: InFlightSearchRequest = {shouldCalculateTotals, shouldSaveRecentSearch, footerTotal, shouldReturnTripRooms: isTripRoomsSearch, jsonQuery, isSent: false};
+    inFlightSearchRequests.set(dedupeKey, inFlightRequestState);
 
     if (shouldUpdateLastSearchParams) {
         saveLastSearchParams({
@@ -1463,13 +1510,22 @@ function search({
         });
     }
 
-    const startRequest = () =>
-        makeRequestWithSideEffects(READ_COMMANDS.SEARCH, {hash: queryJSON.hash, jsonQuery}, {optimisticData, successData, finallyData, failureData})
+    const startRequest = () => {
+        inFlightRequestState.isSent = true;
+        return makeRequestWithSideEffects(READ_COMMANDS.SEARCH, {hash: queryJSON.hash, jsonQuery}, {optimisticData, successData, finallyData, failureData})
             .then((result) => {
                 const snapshotKey = `${ONYXKEYS.COLLECTION.SNAPSHOT}${queryJSON.hash}` as const;
                 // To-do responses list the other collections first and the snapshot last.
                 const response = result?.onyxData?.find((update) => update.key === snapshotKey)?.value as OnyxSearchResponse | undefined;
                 inFlightRequestState.didSucceed = result?.jsonCode === CONST.JSON_CODE.SUCCESS;
+
+                // An inline edit was made while this request was in flight, so the middleware dropped its snapshot. Fetch it
+                // again, unless a call that joined it already set up a re-fire, which then runs instead and also waits for writes.
+                if (releaseSearchSnapshot(jsonQuery)) {
+                    inFlightRequestState.wasSnapshotDropped = true;
+                    inFlightRequestState.pendingUpgradeRequest ??= refetchStaleSnapshot;
+                    return result?.jsonCode;
+                }
 
                 // The UI treats a successful response with no snapshot data as an empty result, so record it for diagnosis.
                 if (result?.jsonCode === CONST.JSON_CODE.SUCCESS && response?.data === undefined) {
@@ -1543,9 +1599,11 @@ function search({
                 throw error;
             })
             .finally(() => {
+                releaseSearchSnapshot(jsonQuery);
                 inFlightSearchRequests.delete(dedupeKey);
                 return inFlightRequestState.pendingUpgradeRequest?.();
             });
+    };
 
     // Catch here so every caller (the page-load fire in useSearchPageSetup and the re-search handlers
     // in SearchPage/SearchPageNarrow) is covered without a separate catch each. Failure and terminal state
@@ -2780,6 +2838,7 @@ export {
     saveSearch,
     seedMyExpensesSearch,
     search,
+    markInFlightSearchRequestsStale,
     getFooterConvertedAmounts,
     clearFooterConversion,
     rejectMoneyRequestsOnSearch,
