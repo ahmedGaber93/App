@@ -1,6 +1,6 @@
 /**
- * Protects optimistic inline edits from older Search responses. For guarded searches, a local inline-edit write queued
- * after dispatch can make the snapshot stale, even if that write has already finished. This middleware drops only the
+ * Protects optimistic inline edits from older Search responses. For every Search request, an inline edit write this tab
+ * queues after the request is sent makes its snapshot stale, even if that write has already finished. This middleware drops only the
  * matching snapshot update, preserving other response updates, and marks the search to rerun after waiting for writes.
  */
 import {READ_COMMANDS} from '@libs/API/types';
@@ -16,7 +16,7 @@ import type Middleware from './types';
  * Queries (the `jsonQuery` sent to the backend) of the in-flight searches whose snapshot is dropped if a local inline edit
  * was queued while they were in flight, each mapped to the edit count at dispatch. The query is keyed
  * rather than the hash because it holds the offset: several pages of one hash can be in flight at once, and only the
- * search that asked for the guard may have its snapshot dropped.
+ * request whose response is stale may have its snapshot dropped.
  */
 const guardedSearchQueries = new Map<string, number>();
 
